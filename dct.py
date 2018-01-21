@@ -3,6 +3,7 @@
 # This file contains a basic version of a discrete cosine transformation for compression of time series data
 
 import math
+import sys
 
 
 MIN_VALUE = 30
@@ -98,6 +99,115 @@ def unscale_data(segment):
     return new_data
 
 
+class MinHeap:
+    def __init__(self):
+        self.nodes = []
+
+    def swap(self, index_a, index_b):
+        temp = self.nodes[index_a]
+        self.nodes[index_a] = self.nodes[index_b]
+        self.nodes[index_b] = temp
+
+    def left_child_index(self, parent_index):
+        return 2 * parent_index + 1
+
+    def right_child_index(self, parent_index):
+        return 2 * parent_index + 2
+
+    def parent_index(self, child_index):
+        return (int)((child_index - 1) / 2)
+
+    def add(self, new_node):
+        self.nodes.append(new_node)
+        self.fix_heap(len(self.nodes) - 1)
+
+    def pop(self):
+        value = self.nodes[0]
+        if len(self.nodes) == 1:
+            del self.nodes[0]
+            return value
+
+        self.swap(0, len(self.nodes) - 1)
+        del self.nodes[-1]
+        self.fix_heap_down(0)
+        return value
+
+    def fix_heap(self, index):
+        if index == 0:
+            return
+        parent_index = self.parent_index(index)
+        if self.nodes[index].value < self.nodes[parent_index].value:
+            self.swap(index, parent_index)
+            self.fix_heap(parent_index)
+
+    def fix_heap_down(self, index):
+        lc_index = self.left_child_index(index)
+        rc_index = self.right_child_index(index)
+
+        value = self.nodes[index].value
+        if lc_index > len(self.nodes) - 1:
+            return
+        lc_value = self.nodes[lc_index].value
+        if rc_index > len(self.nodes) - 1:
+            if lc_value < value:
+                self.swap(index, lc_index)
+        else:
+            rc_value = self.nodes[rc_index].value
+            if lc_value <= rc_value and lc_value < value:
+                self.swap(index, lc_index)
+                self.fix_heap_down(lc_index)
+            elif rc_value < lc_value and rc_value < value:
+                self.swap(index, rc_index)
+                self.fix_heap_down(rc_index)
+
+
+class HeapNode:
+    def __init__(self, value, data=None, right=None, left=None):
+        self.value = value
+        self.data = data
+        self.right = right
+        self.left = left
+
+
+def traverse_huffman(node, dictionary, prefix):
+    if node.left is None and node.right is None:
+        dictionary[node.data] = prefix
+    else:
+        if node.left is not None:
+            traverse_huffman(node.left, dictionary, prefix + "1")
+        if node.right is not None:
+            traverse_huffman(node.right, dictionary, prefix + "0")
+
+
+def huffman(data):
+    f_dict = {}
+    for value in data:
+        if value in f_dict:
+            f_dict[value] += 1
+        else:
+            f_dict[value] = 1
+
+    heap = MinHeap()
+    for key in f_dict:
+        new_node = HeapNode(f_dict[key], data=key)
+        heap.add(new_node)
+
+    while len(heap.nodes) > 1:
+        smallest = heap.pop()
+        second_smallest = heap.pop()
+        new_node = HeapNode(smallest.value + second_smallest.value, left=smallest, right=second_smallest)
+        heap.add(new_node)
+
+    h_dict = {}
+    traverse_huffman(heap.nodes[0], h_dict, "")
+
+    out_sequence = ""
+    for value in data:
+        out_sequence += h_dict[value]
+    print(out_sequence)
+    return h_dict, out_sequence
+
+
 out = "C:/users/jonathan/desktop/" + FILE
 out_file = open(out, "w")
 
@@ -110,6 +220,7 @@ for i in range(1, len(lines)):
     cells = lines[i].split(",")
     if cells[1] != "":
         data.append(float(cells[1]))
+print(len(data) * sys.getsizeof(data[0]))
 
 # BEGIN TRANSOFMRATION
 segments = split(data)
@@ -133,6 +244,9 @@ for quant_segment in quant_segments:
 
 # END TRANSFORMATION
 
+huffman_tree, encoded_data = huffman(transformed_data)
+print(len(encoded_data))
+
 # BEGIN REVERSE TRANSFORMATION
 transformed_segments = split(transformed_data)
 
@@ -148,7 +262,7 @@ unscaled_segments = []
 for inverse_dct_segment in inverse_dct_segments:
     unscaled_segments.append(unscale_data(inverse_dct_segment))
 
-out_file.write("Raw, SCALE, DCT, QUANT, UN-QUANT\n")
+out_file.write("IN, SCALE, DCT, QUANT, UN-QUANT, UN_DCT, OUT\n")
 for i in range(len(data)):
     segment_index = (int)(i / K_SIZE)
     value_index = i - segment_index * K_SIZE
